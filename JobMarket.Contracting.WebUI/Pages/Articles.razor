@@ -1,0 +1,87 @@
+﻿@page "/articles"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState 
+
+@if (_appState.IsLoggedIn())
+{
+
+    <div class="row mb-3">
+        <h3 class="col-md-10">Articles</h3>
+        @if (_appState.IsRoleAdmin())
+        {
+            <button @onclick="@(() => NavigationManager.NavigateTo("/articles/add"))" class="btn btn-success col-md-2">New Article</button>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="h4">@errorMessage</div>
+    }
+    else if (articles is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        @if (articles.Count > 0)
+        {
+            <div class="accordion" id="articlesAccordion">
+                @foreach (var article in articles)
+                {
+                    <div class="card">
+                        <div class="card-header" id="heading_@article.Id">
+                            <h2 class="mb-0">
+                                <button class="btn btn-link btn-block text-left collapsed" type="button" data-toggle="collapse" data-target="#collapse_@article.Id" aria-expanded="false" aria-controls="collapse_@article.Id">
+                                    Article @article.Id (Clause - @article.ClauseId)
+                                </button>
+                            </h2>
+                        </div>
+
+                        <div id="collapse_@article.Id" class="collapse" aria-labelledby="heading_@article.Id" data-parent="#articlesAccordion">
+                            <div class="card-body">
+                                @article.Content
+                            </div>
+                        </div>
+                    </div>
+
+                }
+            </div>
+        } else
+        {
+            <p class="h4">No articles found.</p>
+        }
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    List<ArticleDTO> articles;
+
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            articles = await client.GetFromJsonAsync<List<ArticleDTO>>("api/article");
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error getting data ({ e.Message })";
+        }
+    }
+}

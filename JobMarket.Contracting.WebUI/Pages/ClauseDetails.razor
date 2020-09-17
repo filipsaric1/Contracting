@@ -1,0 +1,66 @@
+﻿@page "/clauses/clause/{clauseId}"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState 
+
+@if (_appState.IsLoggedIn())
+{
+    @if (string.IsNullOrWhiteSpace(errorString) == false)
+    {
+        <div class="h4">@errorString</div>
+    }
+    else if (clause is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <h3>Clause @clause.Name</h3>
+        <br />
+        <h5>Contains articles:</h5>
+        <div class="w-100">
+            @foreach (var article in clause.Articles)
+            {
+                <p class="w-100 text-center border">
+                    @article.Content
+                </p>
+            }
+        </div>
+
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+
+@code {
+    [Parameter]
+    public string ClauseId { get; set; }
+    Clause clause;
+    string errorString;
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            clause = await client.GetFromJsonAsync<Clause>("api/clause/" + ClauseId);
+            errorString = null;
+        }
+        catch (Exception e)
+        {
+            errorString = $"There was an error getting data: { e.Message }";
+        }
+    }
+
+}

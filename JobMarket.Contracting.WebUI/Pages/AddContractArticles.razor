@@ -1,0 +1,112 @@
+﻿@page "/contracts/{contractId:int}/article/{articleId:int}"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState 
+
+@using Newtonsoft.Json
+
+@if (_appState.IsRoleExecutor() || _appState.IsRoleClient())
+{
+<h3>AddContractArticles</h3>
+
+
+@if (string.IsNullOrWhiteSpace(errorMessage) == false)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else if (contract is null || article is null || article.Placeholders is null)
+{
+    <div class="spinner-border"></div>
+}
+else
+{
+    <EditForm Model="article" OnValidSubmit="AddArticleWithPlaceholders">
+        @foreach (var placeholder in article.Placeholders)
+        {
+            <div class="form-group">
+                <label>
+                    @placeholder.Name
+                    <input @onchange="@((ChangeEventArgs __e) => placeholderData[placeholder.Name] = __e.Value.ToString())" class="form-control" />
+                </label>
+            </div>
+        }
+
+        <div class="form-group">
+            <button class="btn btn-primary btn-block">Add Article</button>
+        </div>
+    </EditForm>
+}
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    [Parameter]
+    public int ContractId { get; set; }
+    [Parameter]
+    public int ArticleId { get; set; }
+    ContractDTO contract;
+    Article article;
+
+    Dictionary<string, string> placeholderData = new Dictionary<string, string>();
+
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            contract = await client.GetFromJsonAsync<ContractDTO>($"api/contract/{ContractId}");
+            article = await client.GetFromJsonAsync<Article>($"api/article/{ArticleId}");
+
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was an error getting data: { e.Message }";
+        }
+    }
+
+    protected async Task AddArticleWithPlaceholders()
+    {
+        contract.ArticleContracts.Add(new ArticleContractDTO
+        {
+            ArticleId = article.Id,
+            ContractId = contract.Id,
+            Data = JsonConvert.SerializeObject(placeholderData)
+        });
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            var response = await client.PutAsJsonAsync<ContractDTO>($"api/contract/{contract.Id}", contract);
+            if (response.IsSuccessStatusCode)
+            {
+                errorMessage = null;
+                NavigationManager.NavigateTo($"/contracts/{contract.Id}/edit");
+            }
+            else
+            {
+                errorMessage = response.Content.ToString();
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error updating data ({e.Message})";
+        }
+    }
+
+}

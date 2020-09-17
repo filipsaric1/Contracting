@@ -1,0 +1,31 @@
+﻿@inherits LayoutComponentBase
+@inject AppState _appState
+
+<div class="sidebar">
+    <NavMenu />
+</div>
+<div class="main">
+    <div class="top-row px-4">
+        @if (_appState.IsLoggedIn())
+        {
+            <a href="logout">Logout</a>
+        }
+        else
+        {
+            <a href="register">Register</a>
+            <a href="auth/login">Login</a>
+        }
+    </div>
+
+    <div class="content px-4">
+        @Body
+    </div>
+</div>
+
+ @code {      
+     protected override async Task OnInitializedAsync()
+     {
+         await _appState.CheckState();
+     }
+
+}

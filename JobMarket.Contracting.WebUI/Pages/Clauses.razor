@@ -1,0 +1,122 @@
+﻿@page "/clauses"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+@if (_appState.IsLoggedIn())
+{
+    @if (_appState.IsRoleAdmin())
+    {
+        <h3>Add new clause</h3>
+
+        <EditForm Model="clause" OnValidSubmit="CreateClause">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label for="clauseName">Clause name</label>
+                <InputText @bind-Value="clause.Name" id="clauseName" class="form-control" />
+                <ValidationMessage For="() => clause.Name" />
+            </div>
+            <div class="form-group">
+                <button class="btn btn-primary btn-block">Add Clause</button>
+            </div>
+        </EditForm>
+
+    }
+
+    @if (string.IsNullOrWhiteSpace(errorString) == false)
+    {
+        <div class="h4">@errorString</div>
+    }
+    else if (clauses == null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <h3>Clauses</h3>
+
+        if (clauses.Count == 0)
+        {
+            <h4>No clauses found</h4>
+        }
+        else
+        {
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>Name</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var clause in clauses)
+                    {
+                        <tr>
+                            <td>@clause.Name</td>
+                            <td><button @onclick="@(() => NavigationManager.NavigateTo($"/clauses/clause/{ clause.Id }"))" class="btn btn-outline-primary">Articles</button></td>
+                    </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    List<Clause> clauses;
+    string errorString;
+    ClauseDTO clause = new ClauseDTO();
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            clauses = await client.GetFromJsonAsync<List<Clause>>("api/clause");
+            errorString = null;
+        }
+        catch (Exception e)
+        {
+            errorString = $"There was an error getting data: { e.Message }";
+        }
+    }
+    protected async Task CreateClause()
+    {
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            var response = await client.PostAsJsonAsync("api/clause", clause);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var created = await response.Content.ReadFromJsonAsync<ClauseDTO>();
+                NavigationManager.NavigateTo("/clauses/clause/" + created.Id);
+            }
+            else
+            {
+                errorMessage = $"There was error adding clause";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error adding clause ({ e.Message })";
+        }
+    }
+}

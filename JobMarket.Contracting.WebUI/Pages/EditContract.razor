@@ -1,0 +1,92 @@
+﻿@page "/contracts/{id:int}/edit"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+@if (_appState.IsRoleExecutor())
+{
+    <h3>Edit Contract</h3>
+
+    <button @onclick="@(() => NavigationManager.NavigateTo($"/contracts/contract/{Id}"))" class="btn btn-info">View</button>
+
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="h4">@errorMessage</div>
+    }
+    else if (contract is null || articles is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <p class="text-black-50">Click on article to add.</p>
+        @if (contract.Template.TemplateClauses.Count == 0)
+        {
+            <p class="h5">This template has no clauses. Please choose other template or contact administrator.</p>
+            @if (_appState.IsRoleAdmin())
+            {
+                <a href="/templates/template/@contract.TemplateId">Add clauses</a>
+            }
+        }
+        <div class="list-group">
+            @foreach (var clause in contract.Template.TemplateClauses)
+            {
+                <h5>@clause.Clause.Name</h5>
+
+                @foreach (var article in articles)
+                {
+                    if (!contract.ArticleContracts.Any(ac => ac.ArticleId == article.Id) && clause.ClauseId == article.ClauseId)
+                    {
+                        <div @onclick="@(() => NavigationManager.NavigateTo($"/contracts/{Id}/article/{article.Id}"))" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h5 class="mb-1">Article @article.Id</h5>
+                            </div>
+                            <p class="mb-1">@article.Content</p>
+                        </div>
+                    }
+                }
+            }
+        </div>
+
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+    Contract contract;
+    List<ArticleDTO> articles;
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            contract = await client.GetFromJsonAsync<Contract>($"api/contract/{ Id }");
+            articles = await client.GetFromJsonAsync<List<ArticleDTO>>("api/article");
+            errorMessage = null;
+            if (contract.IsSignedByClient || contract.IsSignedByExecutor)
+            {
+                NavigationManager.NavigateTo("/contracts/contract/" + contract.Id, true);
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was an error getting data: { e.Message }";
+        }
+    }
+}

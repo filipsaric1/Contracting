@@ -1,0 +1,105 @@
+﻿@page "/contracts"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+
+@if (_appState.IsRoleExecutor() || _appState.IsRoleClient())
+{
+    <div class="row">
+        <h3 class="col-md-10">Contracts</h3>
+        @if (_appState.IsRoleExecutor())
+        {
+            <button @onclick="@(() => NavigationManager.NavigateTo("/contracts/add"))" class="btn btn-success col-md-2">New Contract</button>
+        }
+
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="h4">@errorMessage</div>
+    }
+    else if (contracts is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        if (contracts.Count > 0)
+        {
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>ID</th>
+                        <th>ClientID</th>
+                        <th>ExecutorID</th>
+                        <th>State</th>
+                        <th>Created At</th>
+                        <th>Executor Sgnd</th>
+                        <th>Client Sgnd</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var contract in contracts)
+                    {
+                        <tr>
+                            <td>@contract.Id</td>
+                            <td>@contract.ClientId</td>
+                            <td>@contract.ExecutorId</td>
+                            <td>@contract.State</td>
+                            <td>@contract.CreatedAt</td>
+                            <td>@contract.IsSignedByExecutor</td>
+                            <td>@contract.IsSignedByClient</td>
+                            <td>
+                                @if (_appState.IsRoleExecutor() && !contract.IsSignedByExecutor && !contract.IsSignedByClient)
+                                {
+                                    <button @onclick="@(() => NavigationManager.NavigateTo($"/contracts/{contract.Id}/edit"))" class="btn btn-outline-primary">Edit</button>
+                                }
+
+                                <button @onclick="@(() => NavigationManager.NavigateTo($"/contracts/contract/{contract.Id}"))" class="btn btn-outline-info">View</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div class="h4">No contracts found.</div>
+        }
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    List<Contract> contracts;
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login");
+            return;
+        }
+        var claims = _appState.GetClaimsJson();
+        var id = claims.GetValueOrDefault(System.Security.Claims.ClaimTypes.NameIdentifier);
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+        try
+        {
+            contracts = await client.GetFromJsonAsync<List<Contract>>("api/contract");
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was an error getting data: { e.Message }";
+        }
+    }
+}

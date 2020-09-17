@@ -1,0 +1,122 @@
+﻿@page "/contracts/add"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+@if (_appState.IsRoleClient() || _appState.IsRoleExecutor())
+{
+    <h3>Create Contract</h3>
+
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (articles != null && templates != null)
+    {
+    <EditForm Model="contract" OnValidSubmit="CreateContract">
+        <DataAnnotationsValidator />
+        <div class="form-group">
+            <label for="client">Client ID</label>
+            <InputText @bind-Value="contract.ClientId" class="form-control" id="client" />
+            <ValidationMessage For="() => contract.ClientId" />
+        </div>
+        <div class="form-group">
+            <label for="offer">Offer ID</label>
+            <InputNumber @bind-Value="contract.OfferId" class="form-control" id="offer" />
+            <ValidationMessage For="() => contract.OfferId" />
+        </div>
+        <div class="form-group">
+            <label for="template">Template</label>
+            <InputSelect @bind-Value="chosenTemplateId" id="template" class="form-control">
+                <option value="">Select template...</option>
+                @foreach (var template in templates)
+                    {
+                    <option value="@template.Id">@template.Name</option>
+                    }
+            </InputSelect>
+            <ValidationMessage For="() => contract.TemplateId" />
+        </div>
+
+        <div class="form-group">
+            <button class="btn btn-block btn-primary">Create Contract</button>
+        </div>
+
+    </EditForm>
+    }
+    else
+    {
+        <div class="spinner-border"></div>
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    ContractDTO contract = new ContractDTO();
+    List<ArticleDTO> chosenArticles = new List<ArticleDTO>();
+    List<ArticleDTO> articles;
+    List<TemplateDTO> templates;
+    string chosenTemplateId;
+
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            articles = await client.GetFromJsonAsync<List<ArticleDTO>>("api/article");
+            templates = await client.GetFromJsonAsync<List<TemplateDTO>>("api/template");
+
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error getting data ({ e.Message })";
+        }
+    }
+
+    protected async Task CreateContract()
+    {
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login");
+        }
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+        var claims = _appState.GetClaimsJson();
+        var mail = claims.GetValueOrDefault(Microsoft.IdentityModel.JsonWebTokens.JwtRegisteredClaimNames.Sub);
+        var user = client.GetAsync("api/users/" + mail);
+        try
+        {
+            contract.ExecutorId = claims.GetValueOrDefault(System.Security.Claims.ClaimTypes.NameIdentifier);
+            contract.TemplateId = Convert.ToInt32(chosenTemplateId);
+            var response = await client.PostAsJsonAsync("api/contract", contract);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var created = await response.Content.ReadFromJsonAsync<ContractDTO>();
+
+                NavigationManager.NavigateTo($"/contracts/{ created.Id }/edit");
+            }
+            else
+            {
+                errorMessage = $"There was error creating contract";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error creating contract ({ e.Message })";
+        }
+    }
+}

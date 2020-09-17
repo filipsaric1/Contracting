@@ -1,0 +1,104 @@
+﻿@page "/articles/add"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+@if (!_appState.IsRoleAdmin())
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+else
+{
+    <h3>Add Article</h3>
+
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (clauses is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <EditForm Model="article" OnValidSubmit="CreateArticle">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label for="content">Content</label>
+                <InputTextArea @bind-Value="article.Content" id="content" class="form-control" aria-describedby="contentHelp" />
+                <small id="contentHelp" class="form-text text-muted">Type article content with placeholders surronded with square brackets. <br />For example "This is article content and [this] is first placeholder while that is second [placeholder] and you can have as [many] as you need."</small>
+                <ValidationMessage For="() => article.Content" />
+            </div>
+
+            <div class="form-group">
+                <label for="clause">Clause</label>
+                <InputSelect @bind-Value="chosenClauseId" id="clause" class="form-control">
+                    <option value="">Select clause...</option>
+                    @foreach (var clause in clauses)
+                    {
+                        <option value="@clause.Id">@clause.Name</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="() => article.ClauseId" />
+            </div>
+
+            <div class="form-group">
+                <button class="btn btn-primary btn-block">Add Article</button>
+            </div>
+        </EditForm>
+    }
+}
+
+@code {
+    ArticleDTO article = new ArticleDTO();
+    string chosenClauseId;
+    List<ClauseDTO> clauses;
+    string errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            clauses = await client.GetFromJsonAsync<List<ClauseDTO>>("api/clause");
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error getting data ({ e.Message })";
+        }
+    }
+
+    protected async Task CreateArticle()
+    {
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+        try
+        {
+            article.ClauseId = Convert.ToInt32(chosenClauseId);
+            var response = await client.PostAsJsonAsync("api/article", article);
+            if (response.IsSuccessStatusCode)
+            {
+                NavigationManager.NavigateTo("/articles");
+            }
+            else
+            {
+                errorMessage = $"There was error adding article. ({ response.StatusCode })";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error adding article ({ e.Message })";
+        }
+    }
+}

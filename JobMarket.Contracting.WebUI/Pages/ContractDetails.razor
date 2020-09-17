@@ -1,0 +1,284 @@
+﻿@page "/contracts/contract/{id}"
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+
+@inject Microsoft.JSInterop.IJSRuntime JS
+@using System.IO;
+@using Newtonsoft.Json
+
+
+@if (_appState.IsRoleClient() || _appState.IsRoleExecutor())
+{
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="h4">@errorMessage</div>
+    }
+    else if (contract is null || contract.ArticleContracts is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <h3>Contract Details</h3>
+        <div class="border w-100 container h-100">
+            <div class="h-100 justify-content-center align-items-center">
+                <h1 class="mx-auto text-center">@contract.Template.Name</h1>
+                <hr />
+                <h4>Izvođač: @contract.ExecutorId</h4>
+                <h4>Naručitelj: @contract.ClientId</h4>
+                <h5>Datum sklapanja ugovora: @contract.SignedAt</h5>
+                <br />
+                <p>
+                    {Client.Naziv} iz {Client}.Sjedište, OIB: {Client.PIN} (u daljnjem tekstu: Naručitelj), s jedne strane i
+                    {Executor.Naziv} iz {Executor.Sjedište}, OIB: {Executor.PIN} (u daljnjem tekstu: Izvođač), s druge strane
+                    sklapaju sljedeći
+                </p>
+                @if (!contract.IsAnnex)
+                {
+                    <h2 class="text-center mx-auto">Ugovor</h2>
+                }
+                else if (contract.IsAnnex)
+                {
+                    <h2 class="text-center mx-auto">Aneks ugovora</h2>
+                }
+                <hr />
+
+                @foreach (var templateClause in contract.Template.TemplateClauses)
+                {
+                    <h6 class="text-center">@templateClause.Clause.Name</h6>
+                    @foreach (var item in templateClause.Clause.Articles)
+                    {
+                        if (contract.ArticleContracts.FirstOrDefault(ac => ac.ArticleId == item.Id && ac.ContractId == contract.Id) != null)
+                        {
+                            <p class="text-center text-dark">Article @item.Id</p>
+                            <p class="text-center text-black-50">@DisplayArticleWithPlaceholderValues(item)</p>
+                        }
+                    }
+                }
+            </div>
+        </div>
+
+        @if (!isSigned)
+        {
+            <label for="sign">Sign contract</label>
+            <input id="sign" type="checkbox" @onchange="toggleSign" />
+
+        }
+        else
+        {
+            <p>You signed the contract.</p>
+        }
+
+        @if (contract.IsSignedByClient && contract.IsSignedByExecutor)
+        {
+            <p class="font-weight-bold">The contract is signed.</p>
+        }
+
+        @if (!contract.IsAnnex && contract.AnnexId == null && _appState.IsRoleExecutor())
+        {
+            @if (templates.Any(t => t.Name.Trim().ToLower() == "annex"))
+            {
+                <p>
+                    <button class="btn btn-success" @onclick="CreateAnnex">Create Annex</button><br />
+                    After clicking "Add Annex" an annex for this contract will be created.
+                    You can create only one annex per contract.
+                </p>
+            }
+        }
+        else if (!contract.IsAnnex && contract.AnnexId != null)
+        {
+            <p>
+                This contract has an annex.
+                @if (contract.Annex != null)
+                {
+                    @if (_appState.IsRoleExecutor() && !contract.Annex.IsSignedByClient && !contract.IsSignedByExecutor)
+                    {
+                        <button @onclick="@(() => NavigationManager.NavigateTo($"/contracts/{contract.AnnexId}/edit", true))" class="btn btn-outline-primary">Edit</button>
+                    }
+
+                }
+                <button @onclick="@(() => NavigationManager.NavigateTo($"/contracts/contract/{contract.AnnexId}", true))" class="btn btn-outline-info">View</button>
+            </p>
+        }
+
+        <hr />
+
+        <button class="btn btn-danger" @onclick="GetContractPdf">Export PDF</button>
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+
+@code { 
+    [Parameter]
+    public string Id { get; set; }
+    Contract contract;
+    List<TemplateDTO> templates;
+    string errorMessage;
+    bool isSigned;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+        var claims = _appState.GetClaimsJson();
+        var userId = claims.GetValueOrDefault(System.Security.Claims.ClaimTypes.NameIdentifier);
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            contract = await client.GetFromJsonAsync<Contract>("api/contract/" + Id);
+            templates = await client.GetFromJsonAsync<List<TemplateDTO>>("api/template");
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was an error getting data: { e.Message }";
+        }
+        if (contract.ExecutorId != userId && contract.ClientId != userId)
+        {
+            NavigationManager.NavigateTo("/401", true);
+        }
+        var role = claims.GetValueOrDefault(System.Security.Claims.ClaimTypes.Role);
+        if (role.ToString() == "CLIENT")
+        {
+            isSigned = contract.IsSignedByClient;
+        }
+        else
+        {
+            isSigned = contract.IsSignedByExecutor;
+        }
+
+    }
+    protected string DisplayArticleWithPlaceholderValues(Article article)
+    {
+        var placeholderData = new Dictionary<string, string>();
+        var articleContent = article.Content;
+        try
+        {
+            placeholderData = JsonConvert.DeserializeObject<Dictionary<string, string>>(contract.ArticleContracts.FirstOrDefault(ac => ac.ArticleId == article.Id && ac.ContractId == contract.Id).Data);
+        }
+        catch (Exception)
+        {
+            return "";
+        }
+
+
+        foreach (var item in article.Placeholders)
+        {
+            var tmpText = item.Name.Substring(1);
+            var tmpText2 = tmpText.Substring(0, tmpText.Length - 1);
+            var placeholderPattern = @$"\[({tmpText2})\]";
+            string placeholderValue = placeholderData[item.Name];
+            var tmpContent = System.Text.RegularExpressions.Regex.Replace(articleContent, placeholderPattern, placeholderValue);
+            articleContent = tmpContent;
+        }
+        return articleContent;
+    }
+    protected async Task toggleSign()
+    {
+        isSigned = !isSigned;
+        var claims = _appState.GetClaimsJson();
+        var role = claims.GetValueOrDefault(System.Security.Claims.ClaimTypes.Role);
+        if (role.ToString() == "CLIENT")
+        {
+            contract.IsSignedByClient = isSigned;
+            if (contract.IsSignedByClient && contract.IsSignedByExecutor)
+            {
+                contract.State = ContractState.Signed;
+            }
+            var client = _clientFactory.CreateClient("contracting");
+            client = await _appState.SetAuthorizationHeader(client);
+            var response = await client.PutAsJsonAsync("api/contract/" + contract.Id.ToString(), contract);
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = $"There was an error. ({ response.StatusCode } { response.Content })";
+            }
+        }
+        else
+        {
+            contract.IsSignedByExecutor = isSigned;
+            if (contract.IsSignedByClient && contract.IsSignedByExecutor)
+            {
+                contract.State = ContractState.Signed;
+            }
+            var client = _clientFactory.CreateClient("contracting");
+            client = await _appState.SetAuthorizationHeader(client);
+            var response = await client.PutAsJsonAsync("api/contract/" + contract.Id.ToString(), contract);
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = $"There was an error. ({ response.StatusCode } { response.Content })";
+            }
+        }
+    }
+
+    protected async Task GetContractPdf()
+    {
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            var response = await client.GetAsync($"api/contract/{Id}/pdf");
+            var file = await response.Content.ReadAsByteArrayAsync();
+
+            await JS.InvokeAsync<object>("saveAsFile", $"Contract_{Id}.pdf", Convert.ToBase64String(file));
+
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error getting pdf ({e.Message})";
+        }
+
+    }
+    protected async Task CreateAnnex()
+    {
+        if (contract.Annex != null && !_appState.IsRoleExecutor())
+        {
+            return;
+        }
+        try
+        {
+
+            var client = _clientFactory.CreateClient("contracting");
+            client = await _appState.SetAuthorizationHeader(client);
+
+            ContractDTO annex = new ContractDTO()
+            {
+                ClientId = contract.ClientId,
+                ExecutorId = contract.ExecutorId,
+                TemplateId = templates.FirstOrDefault(t => t.Name == "Annex").Id,
+                IsAnnex = true,
+                OfferId = contract.OfferId,
+            };
+            var response = await client.PostAsJsonAsync("api/contract", annex);
+            var created = await response.Content.ReadFromJsonAsync<Contract>();
+            contract.AnnexId = created.Id;
+            var response2 = await client.PutAsJsonAsync("api/contract/" + contract.Id, contract);
+            if (response.IsSuccessStatusCode)
+            {
+                NavigationManager.NavigateTo($"/contracts/{ created.Id }/edit");
+            }
+            else
+            {
+                errorMessage = $"There was error creating contract";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error creating contract ({ e.Message })";
+        }
+
+
+    }
+}

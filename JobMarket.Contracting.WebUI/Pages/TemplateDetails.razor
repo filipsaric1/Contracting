@@ -1,0 +1,132 @@
+﻿@page "/templates/template/{TemplateId}"
+
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager NavigationManager
+@inject AppState _appState
+
+@if (_appState.IsRoleAdmin() || _appState.IsRoleExecutor() || _appState.IsRoleClient())
+{
+    @if (string.IsNullOrWhiteSpace(errorMessage) == false)
+    {
+        <div class="h4">@errorMessage</div>
+    }
+    else if (template is null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <h3>Template @template.Name</h3>
+        @if (_appState.IsRoleAdmin())
+        {
+            @if (clauses.Count > 0)
+            {
+                <EditForm Model="templateClause" OnValidSubmit="CreateTemplateClause">
+                    <DataAnnotationsValidator />
+                    <div class="form-group">
+                        <label for="clause">Select clause to add:</label>
+                        <select @bind="templateClause.ClauseId" id="clause" class="form-control">
+                            @foreach (var clause in clauses)
+                            {
+                                <option value="@clause.Id">@clause.Name</option>
+                            }
+                        </select>
+                        <ValidationMessage For="() => templateClause.ClauseId" />
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary btn-block" type="submit">Add</button>
+                    </div>
+                </EditForm>
+            }
+            else
+            {
+                <p class="h4">No clauses found.</p>
+                <button @onclick="@(() => NavigationManager.NavigateTo("/clauses"))" class="btn btn-success">Add clause</button>
+            }
+        }
+
+        if (templateClauses == null || templateClauses.Count == 0)
+        {
+            <h4>This template has no clauses.</h4>
+        }
+        else
+        {
+            <h4>Clauses in this template</h4>
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>Name</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var templateClause in templateClauses)
+                    {
+                        <tr>@templateClause.Clause.Name</tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    [Parameter]
+    public string TemplateId { get; set; }
+    Template template;
+    string errorMessage;
+    List<TemplateClause> templateClauses;
+    TemplateClauseDTO templateClause = new TemplateClauseDTO();
+    List<Clause> clauses;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            template = await client.GetFromJsonAsync<Template>("api/template/" + TemplateId);
+            templateClauses = (List<TemplateClause>)template.TemplateClauses;
+            clauses = await client.GetFromJsonAsync<List<Clause>>("api/clause");
+            errorMessage = null;
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was an error getting data: { e.Message }";
+        }
+    }
+    protected async Task CreateTemplateClause()
+    {
+        templateClause.TemplateId = template.Id;
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+        try
+        {
+            var response = await client.PostAsJsonAsync("api/templateclause", templateClause);
+            if (response.IsSuccessStatusCode)
+            {
+                NavigationManager.NavigateTo("/templates/template/" + TemplateId, true);
+            }
+            else
+            {
+                errorMessage = $"There was error adding template ({response.StatusCode} {response.Content})";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error adding template ({ e.Message })";
+        }
+
+    }
+
+}

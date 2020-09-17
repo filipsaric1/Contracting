@@ -1,0 +1,119 @@
+﻿@page "/templates"
+@inject IHttpClientFactory _clientFactory
+@inject NavigationManager  NavigationManager
+@inject AppState _appState
+
+@if (_appState.IsLoggedIn())
+{
+    @if (_appState.IsRoleAdmin())
+    {
+        <h3>Add new template</h3>
+        <EditForm Model="template" OnValidSubmit="CreateTemplate">
+            <DataAnnotationsValidator />
+            <div class="form-group">
+                <label for="templateName">Template name</label>
+                <InputText @bind-Value="template.Name" id="templateName" class="form-control" />
+                <ValidationMessage For="() => template.Name" />
+            </div>
+            <div class="form-group">
+                <button class="btn btn-primary btn-block">Add Template</button>
+            </div>
+        </EditForm>
+    }
+
+    @if (string.IsNullOrWhiteSpace(errorString) == false)
+    {
+        <div class="h4">@errorString</div>
+    }
+    else if (templates == null)
+    {
+        <div class="spinner-border"></div>
+    }
+    else
+    {
+        <h3>Templates</h3>
+        if (templates.Count == 0)
+        {
+            <h4>No templates found</h4>
+        }
+        else
+        {
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>Name</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var template in templates)
+                    {
+                        <tr>
+                            <td>@template.Name</td>
+                            <td>
+                                <button @onclick="@(() => NavigationManager.NavigateTo($"/templates/template/{ template.Id }"))" class="btn btn-outline-primary">Clauses</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+    }
+}
+else
+{
+    <p class="h4">You're not authorized to view this page.</p>
+}
+
+@code {
+    List<Template> templates;
+    string errorString;
+    string errorMessage;
+    TemplateDTO template = new TemplateDTO();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await _appState.CheckState();
+        if (!_appState.IsLoggedIn())
+        {
+            NavigationManager.NavigateTo("/auth/login", true);
+        }
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+
+        try
+        {
+            templates = await client.GetFromJsonAsync<List<Template>>("api/template");
+            errorString = null;
+        }
+        catch (Exception e)
+        {
+            errorString = $"There was an error getting data: { e.Message }";
+        }
+    }
+    protected async Task CreateTemplate()
+    {
+        var client = _clientFactory.CreateClient("contracting");
+        client = await _appState.SetAuthorizationHeader(client);
+        try
+        {
+
+            var response = await client.PostAsJsonAsync("api/template", template);
+            if (response.IsSuccessStatusCode)
+            {
+                var created = await response.Content.ReadFromJsonAsync<TemplateDTO>();
+                NavigationManager.NavigateTo("/templates/template/" + created.Id);
+            }
+            else
+            {
+                errorMessage = $"There was error adding template";
+            }
+        }
+        catch (Exception e)
+        {
+            errorMessage = $"There was error adding template ({ e.Message })";
+        }
+    }
+
+}
